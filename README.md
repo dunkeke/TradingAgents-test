@@ -160,6 +160,22 @@ An interface will appear showing results as they load, letting you track the age
   <img src="assets/cli/cli_transaction.png" width="100%" style="display: inline-block; margin: 0 2%;">
 </p>
 
+### Streamlit Front-End (Energy Contracts)
+
+You can launch a simple front-end for energy instruments (Brent/WTI/Henry Hub/TTF):
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The app provides:
+- built-in presets for `BZ=F` (Brent), `CL=F` (WTI), `NG=F` (Henry Hub), and `TTF=F` (TTF);
+- editable ticker and trade date inputs;
+- yfinance as the default data vendor for core data, technicals, fundamentals, and news;
+- direct rendering of the final decision plus analyst reports.
+
+For production-grade energy workflows, we recommend keeping yfinance as a baseline and augmenting it with specialized datasets (e.g., EIA/ENTSOG/ICE) for cross-validation and lower data drift risk.
+
 ## TradingAgents Package
 
 ### Implementation Details
