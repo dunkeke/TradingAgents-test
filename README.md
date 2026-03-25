@@ -117,6 +117,12 @@ Install the package and its dependencies:
 pip install .
 ```
 
+If installation fails around `tiktoken`/Rust compilation, upgrade pip first so it can pick prebuilt wheels:
+```bash
+pip install --upgrade pip
+pip install .
+```
+
 ### Required APIs
 
 TradingAgents supports multiple LLM providers. Set the API key for your chosen provider:
