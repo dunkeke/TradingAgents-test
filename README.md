@@ -174,6 +174,8 @@ You can launch a simple front-end for energy instruments (Brent/WTI/Henry Hub/TT
 streamlit run streamlit_app.py
 ```
 
+For Streamlit Community Cloud deployments, this repository includes `runtime.txt` pinned to Python 3.12 to avoid unsupported `tiktoken` builds on newer Python runtimes.
+
 The app provides:
 - built-in presets for `BZ=F` (Brent), `CL=F` (WTI), `NG=F` (Henry Hub), and `TTF=F` (TTF);
 - editable ticker and trade date inputs;
