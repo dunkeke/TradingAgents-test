@@ -185,9 +185,20 @@ def main() -> None:
             f"未检测到 {env_key}，且未在页面输入 API Key，调用 {llm_provider} 可能会失败。"
         )
 
-    with st.spinner("Trading agents are discussing the market..."):
-        ta = TradingAgentsGraph(debug=False, config=config)
-        final_state, decision = ta.propagate(ticker, trade_date.strftime("%Y-%m-%d"))
+    try:
+        with st.spinner("Trading agents are discussing the market..."):
+            ta = TradingAgentsGraph(debug=False, config=config)
+            final_state, decision = ta.propagate(ticker, trade_date.strftime("%Y-%m-%d"))
+    except Exception as exc:
+        st.error("模型调用失败，请检查 provider / model / API key / backend URL 是否匹配。")
+        st.code(
+            f"provider={llm_provider}\n"
+            f"deep_model={deep_think_llm}\n"
+            f"quick_model={quick_think_llm}\n"
+            f"backend_url={backend_url}\n"
+            f"error={type(exc).__name__}: {exc}"
+        )
+        return
 
     render_reports(final_state, decision)
 

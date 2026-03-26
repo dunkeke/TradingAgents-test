@@ -33,6 +33,12 @@ _PROVIDER_CONFIG = {
     "ollama": ("http://localhost:11434/v1", None),
 }
 
+_OPENAI_COMPAT_DISABLED_PARAMS = {
+    # Some OpenAI-compatible providers don't accept this field in
+    # /chat/completions payloads.
+    "parallel_tool_calls": None,
+}
+
 
 class OpenAIClient(BaseLLMClient):
     """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
@@ -79,6 +85,8 @@ class OpenAIClient(BaseLLMClient):
         # all model families. Third-party providers use Chat Completions.
         if self.provider == "openai":
             llm_kwargs["use_responses_api"] = True
+        else:
+            llm_kwargs["disabled_params"] = _OPENAI_COMPAT_DISABLED_PARAMS
 
         return NormalizedChatOpenAI(**llm_kwargs)
 
