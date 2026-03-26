@@ -19,6 +19,17 @@ ENERGY_TICKERS = {
     "TTF Natural Gas": "TTF=F",
 }
 
+PROVIDER_MODEL_DEFAULTS = {
+    "openai": ("gpt-5.2", "gpt-5-mini"),
+    "deepseek": ("deepseek-reasoner", "deepseek-chat"),
+    "kimi": ("moonshot-v1-32k", "moonshot-v1-8k"),
+    "xai": ("grok-4-0709", "grok-4-fast-non-reasoning"),
+    "openrouter": ("openai/gpt-5", "openai/gpt-5-mini"),
+    "google": ("gemini-2.5-pro", "gemini-2.5-flash"),
+    "anthropic": ("claude-sonnet-4-5", "claude-haiku-4-5"),
+    "ollama": ("qwen3:latest", "qwen3:latest"),
+}
+
 
 def build_config(
     llm_provider: str,
@@ -49,6 +60,26 @@ def build_config(
     }
 
     return config
+
+
+def normalize_models_for_provider(
+    llm_provider: str,
+    deep_think_llm: str,
+    quick_think_llm: str,
+) -> tuple[str, str]:
+    """Normalize obviously incompatible model defaults by provider."""
+    default_deep, default_quick = PROVIDER_MODEL_DEFAULTS.get(
+        llm_provider, ("gpt-5.2", "gpt-5-mini")
+    )
+    if llm_provider == "deepseek" and deep_think_llm.startswith("gpt-"):
+        deep_think_llm = default_deep
+    if llm_provider == "deepseek" and quick_think_llm.startswith("gpt-"):
+        quick_think_llm = default_quick
+    if llm_provider == "kimi" and deep_think_llm.startswith("gpt-"):
+        deep_think_llm = default_deep
+    if llm_provider == "kimi" and quick_think_llm.startswith("gpt-"):
+        quick_think_llm = default_quick
+    return deep_think_llm, quick_think_llm
 
 
 def render_reports(final_state: dict[str, Any], decision: str) -> None:
@@ -115,8 +146,9 @@ def main() -> None:
             provider_backend_map.get(llm_provider, ""),
             help="兼容 OpenAI 协议的服务可自定义地址。",
         )
-        deep_think_llm = st.text_input("Deep-Think Model", "gpt-5.2")
-        quick_think_llm = st.text_input("Quick-Think Model", "gpt-5-mini")
+        default_deep, default_quick = PROVIDER_MODEL_DEFAULTS.get(llm_provider, ("gpt-5.2", "gpt-5-mini"))
+        deep_think_llm = st.text_input("Deep-Think Model", default_deep)
+        quick_think_llm = st.text_input("Quick-Think Model", default_quick)
         max_debate_rounds = st.slider("Max Debate Rounds", 1, 3, 1)
 
         run_button = st.button("Run Analysis", type="primary")
@@ -128,6 +160,13 @@ def main() -> None:
 
     if not run_button:
         return
+
+    had_gpt_model_name = deep_think_llm.startswith("gpt-") or quick_think_llm.startswith("gpt-")
+    deep_think_llm, quick_think_llm = normalize_models_for_provider(
+        llm_provider, deep_think_llm, quick_think_llm
+    )
+    if llm_provider in {"deepseek", "kimi"} and had_gpt_model_name:
+        st.info("检测到与当前 Provider 不匹配的 GPT 模型名，已自动切换为该 Provider 的默认模型。")
 
     config = build_config(
         llm_provider=llm_provider,
