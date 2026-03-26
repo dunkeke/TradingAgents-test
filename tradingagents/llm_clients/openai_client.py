@@ -28,6 +28,8 @@ _PASSTHROUGH_KWARGS = (
 _PROVIDER_CONFIG = {
     "xai": ("https://api.x.ai/v1", "XAI_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    "deepseek": ("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
+    "kimi": ("https://api.moonshot.cn/v1", "MOONSHOT_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
 }
 

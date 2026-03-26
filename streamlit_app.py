@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 from typing import Any
 
@@ -24,6 +25,8 @@ def build_config(
     deep_think_llm: str,
     quick_think_llm: str,
     max_debate_rounds: int,
+    backend_url: str | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
     """Build runtime config for TradingAgentsGraph."""
 
@@ -32,6 +35,10 @@ def build_config(
     config["deep_think_llm"] = deep_think_llm
     config["quick_think_llm"] = quick_think_llm
     config["max_debate_rounds"] = max_debate_rounds
+    if backend_url:
+        config["backend_url"] = backend_url
+    if api_key:
+        config["api_key"] = api_key
 
     # Keep yfinance as the default vendor chain for all categories.
     config["data_vendors"] = {
@@ -71,6 +78,22 @@ def main() -> None:
         "Data vendors are configured to yfinance by default."
     )
 
+    provider_env_key_map = {
+        "openai": "OPENAI_API_KEY",
+        "xai": "XAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+        "kimi": "MOONSHOT_API_KEY",
+    }
+    provider_backend_map = {
+        "openai": "https://api.openai.com/v1",
+        "xai": "https://api.x.ai/v1",
+        "openrouter": "https://openrouter.ai/api/v1",
+        "deepseek": "https://api.deepseek.com/v1",
+        "kimi": "https://api.moonshot.cn/v1",
+        "ollama": "http://localhost:11434/v1",
+    }
+
     with st.sidebar:
         st.header("Run Setup")
         instrument_name = st.selectbox("Energy Instrument", list(ENERGY_TICKERS.keys()))
@@ -79,8 +102,18 @@ def main() -> None:
 
         llm_provider = st.selectbox(
             "LLM Provider",
-            ["openai", "google", "anthropic", "xai", "openrouter", "ollama"],
+            ["openai", "google", "anthropic", "xai", "deepseek", "kimi", "openrouter", "ollama"],
             index=0,
+        )
+        api_key_input = st.text_input(
+            "API Key (optional, 覆盖环境变量)",
+            type="password",
+            help="建议优先使用环境变量；这里输入后仅在当前会话生效。",
+        )
+        backend_url = st.text_input(
+            "Backend URL",
+            provider_backend_map.get(llm_provider, ""),
+            help="兼容 OpenAI 协议的服务可自定义地址。",
         )
         deep_think_llm = st.text_input("Deep-Think Model", "gpt-5.2")
         quick_think_llm = st.text_input("Quick-Think Model", "gpt-5-mini")
@@ -101,7 +134,17 @@ def main() -> None:
         deep_think_llm=deep_think_llm,
         quick_think_llm=quick_think_llm,
         max_debate_rounds=max_debate_rounds,
+        backend_url=backend_url,
+        api_key=api_key_input or None,
     )
+
+    env_key = provider_env_key_map.get(llm_provider)
+    if api_key_input and env_key:
+        os.environ[env_key] = api_key_input
+    elif llm_provider in provider_env_key_map and not os.environ.get(env_key or ""):
+        st.warning(
+            f"未检测到 {env_key}，且未在页面输入 API Key，调用 {llm_provider} 可能会失败。"
+        )
 
     with st.spinner("Trading agents are discussing the market..."):
         ta = TradingAgentsGraph(debug=False, config=config)
