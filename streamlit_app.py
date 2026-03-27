@@ -61,17 +61,6 @@ PROVIDER_MODEL_DEFAULTS = {
     "ollama": ("qwen3:latest", "qwen3:latest"),
 }
 
-PROVIDER_MODEL_DEFAULTS = {
-    "openai": ("gpt-5.2", "gpt-5-mini"),
-    "deepseek": ("deepseek-reasoner", "deepseek-chat"),
-    "kimi": ("moonshot-v1-32k", "moonshot-v1-8k"),
-    "xai": ("grok-4-0709", "grok-4-fast-non-reasoning"),
-    "openrouter": ("openai/gpt-5", "openai/gpt-5-mini"),
-    "google": ("gemini-2.5-pro", "gemini-2.5-flash"),
-    "anthropic": ("claude-sonnet-4-5", "claude-haiku-4-5"),
-    "ollama": ("qwen3:latest", "qwen3:latest"),
-}
-
 
 def build_config(
     llm_provider: str,
@@ -80,6 +69,7 @@ def build_config(
     max_debate_rounds: int,
     backend_url: str | None = None,
     api_key: str | None = None,
+    uploaded_market_context: str | None = None,
 ) -> dict[str, Any]:
     """Build runtime config for TradingAgentsGraph."""
 
@@ -92,6 +82,8 @@ def build_config(
         config["backend_url"] = backend_url
     if api_key:
         config["api_key"] = api_key
+    if uploaded_market_context:
+        config["uploaded_market_context"] = uploaded_market_context
 
     # Keep yfinance as the default vendor chain for all categories.
     config["data_vendors"] = {
@@ -102,6 +94,37 @@ def build_config(
     }
 
     return config
+
+
+def summarize_uploaded_excel(uploaded_file) -> str:
+    """Summarize uploaded Excel into a compact text context."""
+    try:
+        sheets = pd.read_excel(uploaded_file, sheet_name=None)
+    except Exception as exc:  # noqa: BLE001
+        return f"[Excel parse failed] {type(exc).__name__}: {exc}"
+
+    segments: list[str] = []
+    for sheet_name, df in sheets.items():
+        if df.empty:
+            continue
+        cleaned = df.dropna(axis=0, how="all").dropna(axis=1, how="all")
+        if cleaned.empty:
+            continue
+        preview = cleaned.head(8).astype(str)
+        numeric_cols = cleaned.select_dtypes(include="number")
+        stats_text = ""
+        if not numeric_cols.empty:
+            desc = numeric_cols.describe().T[["mean", "std", "min", "max"]].round(3)
+            stats_text = f"\nStats:\n{desc.to_string()}"
+        segments.append(
+            f"[Sheet: {sheet_name}] rows={len(cleaned)} cols={len(cleaned.columns)}\n"
+            f"Columns: {', '.join(map(str, cleaned.columns[:30]))}\n"
+            f"Preview:\n{preview.to_string(index=False)}{stats_text}"
+        )
+
+    if not segments:
+        return "[Excel parsed but no usable non-empty sheets found]"
+    return "\n\n".join(segments)
 
 
 def normalize_models_for_provider(
@@ -214,6 +237,7 @@ def export_report_payload(
     decision: str,
     final_state: dict[str, Any],
     factor_df: pd.DataFrame,
+    uploaded_market_context: str | None = None,
 ) -> tuple[str, str]:
     factor_table = factor_df.to_string(index=False)
     markdown = f"""# TradingAgents Report
@@ -239,6 +263,9 @@ def export_report_payload(
 
 ### Fundamentals
 {final_state.get("fundamentals_report", "N/A")}
+
+## Uploaded Context
+{uploaded_market_context or "N/A"}
 """
     json_payload = {
         "ticker": ticker,
@@ -251,6 +278,7 @@ def export_report_payload(
             "news_report": final_state.get("news_report", "N/A"),
             "fundamentals_report": final_state.get("fundamentals_report", "N/A"),
         },
+        "uploaded_market_context": uploaded_market_context or "",
     }
     return markdown, json.dumps(json_payload, ensure_ascii=False, indent=2)
 
@@ -304,6 +332,26 @@ def main() -> None:
         deep_think_llm = st.text_input("Deep-Think Model", default_deep)
         quick_think_llm = st.text_input("Quick-Think Model", default_quick)
         max_debate_rounds = st.slider("Max Debate Rounds", 1, 3, 1)
+        st.divider()
+        st.subheader("LPG/JKM 补充数据")
+        uploaded_excel = st.file_uploader(
+            "上传 Excel（可多 sheet）",
+            type=["xlsx", "xls"],
+            accept_multiple_files=False,
+            help="用于补充 yfinance 缺失的 LPG/套利链路数据。",
+        )
+        uploaded_images = st.file_uploader(
+            "上传报价/产业链图片（可多张）",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+            help="图片暂不做 OCR，建议配合手工要点说明。",
+        )
+        manual_notes = st.text_area(
+            "手工补充逻辑（支持中英文）",
+            value="",
+            height=120,
+            placeholder="例如：MB FEI/CP倒挂、PG/PP套利阈值、月差逻辑、现货贴水结构等。",
+        )
 
         run_button = st.button("Run Analysis", type="primary")
 
@@ -317,6 +365,20 @@ def main() -> None:
 
     if not run_button:
         return
+
+    uploaded_context_parts: list[str] = []
+    if uploaded_excel is not None:
+        excel_summary = summarize_uploaded_excel(uploaded_excel)
+        uploaded_context_parts.append(f"[Uploaded Excel Summary]\n{excel_summary}")
+        with st.expander("已解析 Excel 摘要（发送给分析代理）", expanded=False):
+            st.text(excel_summary[:8000])
+    if uploaded_images:
+        image_names = ", ".join(file.name for file in uploaded_images)
+        uploaded_context_parts.append(f"[Uploaded Image Filenames]\n{image_names}")
+        st.caption(f"已上传图片: {image_names}")
+    if manual_notes.strip():
+        uploaded_context_parts.append(f"[Manual Notes]\n{manual_notes.strip()}")
+    uploaded_market_context = "\n\n".join(uploaded_context_parts).strip()
 
     had_gpt_model_name = deep_think_llm.startswith("gpt-") or quick_think_llm.startswith("gpt-")
     deep_think_llm, quick_think_llm = normalize_models_for_provider(
@@ -332,6 +394,7 @@ def main() -> None:
         max_debate_rounds=max_debate_rounds,
         backend_url=backend_url,
         api_key=api_key_input or None,
+        uploaded_market_context=uploaded_market_context or None,
     )
 
     env_key = provider_env_key_map.get(llm_provider)
@@ -369,6 +432,7 @@ def main() -> None:
         decision=decision,
         final_state=final_state,
         factor_df=factor_df,
+        uploaded_market_context=uploaded_market_context or None,
     )
     col_md, col_json = st.columns(2)
     col_md.download_button(
