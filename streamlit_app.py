@@ -61,6 +61,17 @@ PROVIDER_MODEL_DEFAULTS = {
     "ollama": ("qwen3:latest", "qwen3:latest"),
 }
 
+PROVIDER_MODEL_DEFAULTS = {
+    "openai": ("gpt-5.2", "gpt-5-mini"),
+    "deepseek": ("deepseek-reasoner", "deepseek-chat"),
+    "kimi": ("moonshot-v1-32k", "moonshot-v1-8k"),
+    "xai": ("grok-4-0709", "grok-4-fast-non-reasoning"),
+    "openrouter": ("openai/gpt-5", "openai/gpt-5-mini"),
+    "google": ("gemini-2.5-pro", "gemini-2.5-flash"),
+    "anthropic": ("claude-sonnet-4-5", "claude-haiku-4-5"),
+    "ollama": ("qwen3:latest", "qwen3:latest"),
+}
+
 
 def build_config(
     llm_provider: str,
