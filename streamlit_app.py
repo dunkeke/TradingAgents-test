@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import date
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -17,6 +19,35 @@ ENERGY_TICKERS = {
     "WTI (NYMEX)": "CL=F",
     "Henry Hub Natural Gas": "NG=F",
     "TTF Natural Gas": "TTF=F",
+    "JKM LNG (Platts, proxy)": "JKM=F",
+    "LPG (Saudi CP, proxy)": "BZ=F",
+    "China PP Futures (proxy)": "PP=F",
+    "China PG/LPG Futures (manual ticker)": "",
+}
+
+MARKET_DIMENSIONS = {
+    "JKM LNG (Platts, proxy)": [
+        "JKM seasonal structure",
+        "JKM vs TTF spread",
+        "JKM vs Brent slope",
+        "Asia LNG shipping bottlenecks",
+    ],
+    "LPG (Saudi CP, proxy)": [
+        "Saudi CP trend / month-over-month",
+        "MB FEI vs CP spread",
+        "LPG cracking & substitution economics",
+        "Arb routes (USG/AG to Asia)",
+    ],
+    "China PP Futures (proxy)": [
+        "PP margin and feedstock sensitivity",
+        "PP/PG inter-product spread",
+        "China domestic basis and inventory",
+    ],
+    "China PG/LPG Futures (manual ticker)": [
+        "China PG futures structure",
+        "Import parity vs domestic quotes",
+        "PG-PP cross-spread monitoring",
+    ],
 }
 
 PROVIDER_MODEL_DEFAULTS = {
@@ -101,6 +132,118 @@ def render_reports(final_state: dict[str, Any], decision: str) -> None:
         st.write(final_state.get("fundamentals_report", "N/A"))
 
 
+def _score_report(text: str | None) -> int:
+    if not text:
+        return 0
+    positive_tokens = [
+        "bull", "buy", "uptrend", "improving", "strong", "上涨", "看多", "改善"
+    ]
+    negative_tokens = [
+        "bear", "sell", "downtrend", "weak", "risk", "下跌", "看空", "走弱"
+    ]
+    lower = text.lower()
+    score = sum(lower.count(token) for token in positive_tokens)
+    score -= sum(lower.count(token) for token in negative_tokens)
+    return int(score)
+
+
+def build_factor_dataframe(final_state: dict[str, Any]) -> pd.DataFrame:
+    factors = [
+        ("Market", _score_report(final_state.get("market_report"))),
+        ("Sentiment", _score_report(final_state.get("sentiment_report"))),
+        ("News", _score_report(final_state.get("news_report"))),
+        ("Fundamentals", _score_report(final_state.get("fundamentals_report"))),
+    ]
+    df = pd.DataFrame(factors, columns=["factor", "score"])
+    df["contribution"] = df["score"].cumsum()
+    return df
+
+
+def render_decision_overview_cards(decision: str, factor_df: pd.DataFrame) -> None:
+    decision_upper = decision.upper()
+    confidence = min(95, 50 + int(factor_df["score"].abs().sum() * 3))
+    risk_level = (
+        "High"
+        if factor_df["score"].std() > 4
+        else "Medium"
+        if factor_df["score"].std() > 2
+        else "Low"
+    )
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Decision", decision_upper)
+    col2.metric("Confidence (heuristic)", f"{confidence}%")
+    col3.metric("Risk Level", risk_level)
+
+
+def render_factor_waterfall(factor_df: pd.DataFrame) -> None:
+    st.subheader("因子贡献瀑布图（启发式）")
+    st.caption("注：当前为文本打分启发式版本，后续可替换为模型结构化打分。")
+    st.bar_chart(factor_df.set_index("factor")["score"])
+
+
+def render_timeline_chart() -> None:
+    st.subheader("分析时间线图")
+    timeline_df = pd.DataFrame(
+        [
+            {"phase": "Market Analyst", "order": 1},
+            {"phase": "Social Analyst", "order": 2},
+            {"phase": "News Analyst", "order": 3},
+            {"phase": "Fundamentals Analyst", "order": 4},
+            {"phase": "Debate & Risk", "order": 5},
+            {"phase": "Portfolio Decision", "order": 6},
+        ]
+    )
+    st.line_chart(timeline_df.set_index("phase")["order"])
+
+
+def export_report_payload(
+    *,
+    ticker: str,
+    trade_date: str,
+    decision: str,
+    final_state: dict[str, Any],
+    factor_df: pd.DataFrame,
+) -> tuple[str, str]:
+    factor_table = factor_df.to_string(index=False)
+    markdown = f"""# TradingAgents Report
+
+- Ticker: `{ticker}`
+- Trade Date: `{trade_date}`
+- Final Decision: `{decision}`
+
+## Factor Scores
+```
+{factor_table}
+```
+
+## Reports
+### Market
+{final_state.get("market_report", "N/A")}
+
+### Sentiment
+{final_state.get("sentiment_report", "N/A")}
+
+### News
+{final_state.get("news_report", "N/A")}
+
+### Fundamentals
+{final_state.get("fundamentals_report", "N/A")}
+"""
+    json_payload = {
+        "ticker": ticker,
+        "trade_date": trade_date,
+        "decision": decision,
+        "factor_scores": factor_df.to_dict(orient="records"),
+        "reports": {
+            "market_report": final_state.get("market_report", "N/A"),
+            "sentiment_report": final_state.get("sentiment_report", "N/A"),
+            "news_report": final_state.get("news_report", "N/A"),
+            "fundamentals_report": final_state.get("fundamentals_report", "N/A"),
+        },
+    }
+    return markdown, json.dumps(json_payload, ensure_ascii=False, indent=2)
+
+
 def main() -> None:
     st.set_page_config(page_title="TradingAgents Energy Desk", layout="wide")
     st.title("TradingAgents Energy Desk (Streamlit)")
@@ -157,6 +300,9 @@ def main() -> None:
         "建议：对能源品种可额外接入 EIA / ICE / ENTSOG 等结构化数据源，"
         "再结合 yfinance 做多源校验，以提升信号稳定性。"
     )
+    st.markdown("**当前品种扩展分析维度（可用于后续增强）**")
+    for dim in MARKET_DIMENSIONS.get(instrument_name, []):
+        st.markdown(f"- {dim}")
 
     if not run_button:
         return
@@ -200,7 +346,32 @@ def main() -> None:
         )
         return
 
+    factor_df = build_factor_dataframe(final_state)
+    render_decision_overview_cards(decision, factor_df)
+    render_factor_waterfall(factor_df)
+    render_timeline_chart()
     render_reports(final_state, decision)
+
+    markdown_report, json_report = export_report_payload(
+        ticker=ticker,
+        trade_date=trade_date.strftime("%Y-%m-%d"),
+        decision=decision,
+        final_state=final_state,
+        factor_df=factor_df,
+    )
+    col_md, col_json = st.columns(2)
+    col_md.download_button(
+        "导出 Markdown 报告",
+        data=markdown_report,
+        file_name=f"tradingagents_report_{ticker}_{trade_date}.md",
+        mime="text/markdown",
+    )
+    col_json.download_button(
+        "导出 JSON 报告",
+        data=json_report,
+        file_name=f"tradingagents_report_{ticker}_{trade_date}.json",
+        mime="application/json",
+    )
 
 
 if __name__ == "__main__":
