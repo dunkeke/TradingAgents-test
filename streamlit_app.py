@@ -379,6 +379,9 @@ def main() -> None:
     if manual_notes.strip():
         uploaded_context_parts.append(f"[Manual Notes]\n{manual_notes.strip()}")
     uploaded_market_context = "\n\n".join(uploaded_context_parts).strip()
+    if len(uploaded_market_context) > 6000:
+        st.warning("上传上下文较长，已自动截断到 6000 字符以避免模型超长请求失败。")
+        uploaded_market_context = uploaded_market_context[:6000]
 
     had_gpt_model_name = deep_think_llm.startswith("gpt-") or quick_think_llm.startswith("gpt-")
     deep_think_llm, quick_think_llm = normalize_models_for_provider(

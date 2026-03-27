@@ -73,17 +73,14 @@ Volume-Based Indicators:
         prompt = prompt.partial(instrument_context=instrument_context)
         if uploaded_context:
             prompt = prompt.partial(
-                instrument_context=f"{instrument_context}\n\nAdditional uploaded context:\n{uploaded_context[:12000]}"
+                instrument_context=f"{instrument_context}\n\nAdditional uploaded context:\n{uploaded_context[:4000]}"
             )
 
         chain = prompt | llm.bind_tools(tools, parallel_tool_calls=False)
 
         result = chain.invoke(state["messages"])
 
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
+        report = result.content or ""
 
         return {
             "messages": [result],
