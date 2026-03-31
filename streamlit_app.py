@@ -314,10 +314,26 @@ def main() -> None:
         "ollama": "http://localhost:11434/v1",
     }
 
+    def _sync_ticker_from_instrument() -> None:
+        selected = st.session_state.get("instrument_name")
+        if selected in ENERGY_TICKERS:
+            st.session_state["ticker_input"] = ENERGY_TICKERS[selected]
+
     with st.sidebar:
         st.header("Run Setup")
-        instrument_name = st.selectbox("Energy Instrument", list(ENERGY_TICKERS.keys()))
-        ticker = st.text_input("Ticker (editable)", ENERGY_TICKERS[instrument_name])
+        instrument_name = st.selectbox(
+            "Energy Instrument",
+            list(ENERGY_TICKERS.keys()),
+            key="instrument_name",
+            on_change=_sync_ticker_from_instrument,
+        )
+        if "ticker_input" not in st.session_state:
+            st.session_state["ticker_input"] = ENERGY_TICKERS[instrument_name]
+        ticker = st.text_input(
+            "Ticker (editable)",
+            key="ticker_input",
+            help="选择新标的时会自动同步默认 ticker；你也可以手动覆盖。",
+        )
         trade_date = st.date_input("Trade Date", value=date.today())
 
         llm_provider = st.selectbox(
@@ -371,6 +387,11 @@ def main() -> None:
         st.markdown(f"- {dim}")
 
     if not run_button:
+        return
+
+    ticker = ticker.strip()
+    if not ticker:
+        st.error("Ticker 不能为空。请填写一个可识别的交易代码（例如 LPG 相关代理代码或你自定义的内部代码）。")
         return
 
     uploaded_context_parts: list[str] = []
