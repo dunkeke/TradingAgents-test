@@ -50,6 +50,13 @@ MARKET_DIMENSIONS = {
     ],
 }
 
+ISOLATED_UPLOAD_INSTRUMENTS = {
+    "JKM LNG (Platts, proxy)",
+    "LPG (Saudi CP, proxy)",
+    "China PP Futures (proxy)",
+    "China PG/LPG Futures (manual ticker)",
+}
+
 PROVIDER_MODEL_DEFAULTS = {
     "openai": ("gpt-5.2", "gpt-5-mini"),
     "deepseek": ("deepseek-reasoner", "deepseek-chat"),
@@ -379,6 +386,10 @@ def main() -> None:
     if manual_notes.strip():
         uploaded_context_parts.append(f"[Manual Notes]\n{manual_notes.strip()}")
     uploaded_market_context = "\n\n".join(uploaded_context_parts).strip()
+    if instrument_name not in ISOLATED_UPLOAD_INSTRUMENTS:
+        if uploaded_market_context:
+            st.info("当前品种处于隔离模式：上传数据不会注入分析代理，仅用于本地展示/导出。")
+        uploaded_market_context = ""
     if len(uploaded_market_context) > 6000:
         st.warning("上传上下文较长，已自动截断到 6000 字符以避免模型超长请求失败。")
         uploaded_market_context = uploaded_market_context[:6000]
