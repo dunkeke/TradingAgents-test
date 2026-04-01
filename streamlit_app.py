@@ -7,10 +7,12 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+import yfinance as yf
 from dotenv import load_dotenv
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.llm_clients import create_llm_client
 
 load_dotenv()
 
@@ -237,6 +239,71 @@ def render_timeline_chart() -> None:
     st.line_chart(timeline_df.set_index("phase")["order"])
 
 
+def _compute_rsi(close: pd.Series, window: int = 14) -> pd.Series:
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(window=window).mean()
+    rs = gain / loss.replace(0, pd.NA)
+    return 100 - (100 / (1 + rs))
+
+
+def render_technical_visuals(ticker: str) -> None:
+    """Render lightweight technical charts for the selected ticker."""
+    st.subheader("技术分析可视化（延伸）")
+    try:
+        data = yf.download(ticker, period="6mo", interval="1d", progress=False, auto_adjust=True)
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"技术图加载失败: {type(exc).__name__}: {exc}")
+        return
+
+    if data.empty or "Close" not in data:
+        st.warning("该品种暂无可用价格数据，无法生成技术图。")
+        return
+
+    chart_df = pd.DataFrame(index=data.index)
+    chart_df["Close"] = data["Close"]
+    chart_df["SMA20"] = chart_df["Close"].rolling(20).mean()
+    chart_df["EMA10"] = chart_df["Close"].ewm(span=10, adjust=False).mean()
+    chart_df["RSI14"] = _compute_rsi(chart_df["Close"])
+
+    st.caption("价格与均线")
+    st.line_chart(chart_df[["Close", "SMA20", "EMA10"]].dropna())
+    st.caption("RSI(14)")
+    st.line_chart(chart_df[["RSI14"]].dropna())
+
+
+def ask_followup_with_llm(
+    *,
+    question: str,
+    final_state: dict[str, Any],
+    config: dict[str, Any],
+    uploaded_market_context: str | None,
+) -> str:
+    llm_kwargs: dict[str, Any] = {}
+    if config.get("api_key"):
+        llm_kwargs["api_key"] = config["api_key"]
+    backend_url = config.get("backend_url")
+    provider = config.get("llm_provider", "openai")
+    model = config.get("quick_think_llm", "gpt-5-mini")
+    client = create_llm_client(provider=provider, model=model, base_url=backend_url, **llm_kwargs)
+    llm = client.get_llm()
+
+    context = (
+        f"Market Report:\n{final_state.get('market_report', 'N/A')}\n\n"
+        f"Sentiment Report:\n{final_state.get('sentiment_report', 'N/A')}\n\n"
+        f"News Report:\n{final_state.get('news_report', 'N/A')}\n\n"
+        f"Fundamentals Report:\n{final_state.get('fundamentals_report', 'N/A')}\n\n"
+        f"Uploaded Context:\n{uploaded_market_context or 'N/A'}\n"
+    )
+    prompt = (
+        "You are a trading analysis assistant. Answer the follow-up question based on the provided reports. "
+        "Be concise, actionable, and include risk points.\n\n"
+        f"{context}\nFollow-up question: {question}"
+    )
+    resp = llm.invoke(prompt)
+    return getattr(resp, "content", str(resp))
+
+
 def export_report_payload(
     *,
     ticker: str,
@@ -459,7 +526,29 @@ def main() -> None:
     render_decision_overview_cards(decision, factor_df)
     render_factor_waterfall(factor_df)
     render_timeline_chart()
+    render_technical_visuals(ticker)
     render_reports(final_state, decision)
+
+    st.subheader("针对分析报告的延伸提问")
+    followup_q = st.text_input("输入追问（例如：若 CP 下调 20 美元，建议如何调整仓位？）")
+    if st.button("提交追问"):
+        if not followup_q.strip():
+            st.warning("请输入追问内容。")
+        else:
+            with st.spinner("正在生成追问回答..."):
+                try:
+                    answer = ask_followup_with_llm(
+                        question=followup_q.strip(),
+                        final_state=final_state,
+                        config=config,
+                        uploaded_market_context=uploaded_market_context or None,
+                    )
+                    st.session_state["followup_answer"] = answer
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"追问失败: {type(exc).__name__}: {exc}")
+    if st.session_state.get("followup_answer"):
+        st.markdown("**追问回答**")
+        st.write(st.session_state["followup_answer"])
 
     markdown_report, json_report = export_report_payload(
         ticker=ticker,
