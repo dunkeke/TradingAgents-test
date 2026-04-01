@@ -13,6 +13,7 @@ def create_news_analyst(llm):
     def news_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = build_instrument_context(state["company_of_interest"])
+        uploaded_context = get_config().get("uploaded_market_context", "")
 
         tools = [
             get_news,
@@ -45,14 +46,15 @@ def create_news_analyst(llm):
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
+        if uploaded_context:
+            prompt = prompt.partial(
+                instrument_context=f"{instrument_context}\n\nAdditional uploaded context:\n{uploaded_context[:2000]}"
+            )
 
-        chain = prompt | llm.bind_tools(tools)
+        chain = prompt | llm.bind_tools(tools, parallel_tool_calls=False)
         result = chain.invoke(state["messages"])
 
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
+        report = result.content or ""
 
         return {
             "messages": [result],
