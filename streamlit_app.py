@@ -136,22 +136,38 @@ def summarize_uploaded_excel(uploaded_file) -> str:
     return "\n\n".join(segments)
 
 
+def _is_model_compatible(provider: str, model: str) -> bool:
+    if not model:
+        return False
+    checks = {
+        "openai": ("gpt-",),
+        "xai": ("grok-",),
+        "openrouter": ("openai/", "anthropic/", "google/", "meta-llama/", "deepseek/"),
+        "deepseek": ("deepseek",),
+        "kimi": ("moonshot", "kimi-"),
+        "google": ("gemini",),
+        "anthropic": ("claude",),
+        "ollama": (":",),
+    }
+    prefixes = checks.get(provider, ())
+    normalized = model.strip().lower()
+    if provider == "ollama":
+        return ":" in normalized
+    return any(normalized.startswith(prefix) for prefix in prefixes)
+
+
 def normalize_models_for_provider(
     llm_provider: str,
     deep_think_llm: str,
     quick_think_llm: str,
 ) -> tuple[str, str]:
-    """Normalize obviously incompatible model defaults by provider."""
+    """Normalize incompatible model names by provider."""
     default_deep, default_quick = PROVIDER_MODEL_DEFAULTS.get(
         llm_provider, ("gpt-5.2", "gpt-5-mini")
     )
-    if llm_provider == "deepseek" and deep_think_llm.startswith("gpt-"):
+    if not _is_model_compatible(llm_provider, deep_think_llm):
         deep_think_llm = default_deep
-    if llm_provider == "deepseek" and quick_think_llm.startswith("gpt-"):
-        quick_think_llm = default_quick
-    if llm_provider == "kimi" and deep_think_llm.startswith("gpt-"):
-        deep_think_llm = default_deep
-    if llm_provider == "kimi" and quick_think_llm.startswith("gpt-"):
+    if not _is_model_compatible(llm_provider, quick_think_llm):
         quick_think_llm = default_quick
     return deep_think_llm, quick_think_llm
 
@@ -482,12 +498,12 @@ def main() -> None:
         st.warning("上传上下文较长，已自动截断到 6000 字符以避免模型超长请求失败。")
         uploaded_market_context = uploaded_market_context[:6000]
 
-    had_gpt_model_name = deep_think_llm.startswith("gpt-") or quick_think_llm.startswith("gpt-")
+    original_models = (deep_think_llm, quick_think_llm)
     deep_think_llm, quick_think_llm = normalize_models_for_provider(
         llm_provider, deep_think_llm, quick_think_llm
     )
-    if llm_provider in {"deepseek", "kimi"} and had_gpt_model_name:
-        st.info("检测到与当前 Provider 不匹配的 GPT 模型名，已自动切换为该 Provider 的默认模型。")
+    if (deep_think_llm, quick_think_llm) != original_models:
+        st.info("检测到与当前 Provider 不匹配的模型名，已自动切换为该 Provider 的默认模型。")
 
     config = build_config(
         llm_provider=llm_provider,
